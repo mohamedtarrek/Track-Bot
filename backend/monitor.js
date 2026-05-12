@@ -6,7 +6,7 @@ const config = require('./config');
 // Monitoring state
 let isRunning = false;
 let intervalId = null;
-let let debugIntervalId = null;
+let debugIntervalId = null;
 let lastChecked = null;
 let notificationsSent = 0;
 // To prevent duplicate notifications: track last notified price for each trader
@@ -331,7 +331,7 @@ async function monitorPrices() {
         });
         continue;
       }
-      instapayCount++;
+      debugInfo.instapayCount++;
 
       // Check if trader's price is higher than ours
       if (trader.price <= ourTrader.price) {
@@ -343,7 +343,7 @@ async function monitorPrices() {
         });
         continue;
       }
-      higherPriceCount++;
+      debugInfo.higherPriceCount++;
 
       // Check if max quantity meets the minimum threshold
       if (trader.maxQuantity < minQuantity) {
@@ -352,10 +352,10 @@ async function monitorPrices() {
           traderName: trader.traderName,
           reason: 'Insufficient quantity',
           details: `Their quantity: ${trader.maxQuantity}, Minimum: ${minQuantity}`
-        );
+        });
         continue;
       }
-      sufficientQuantityCount++;
+      debugInfo.sufficientQuantityCount++;
 
       // Check for duplicate notification: if we already notified for this trader at this price (or higher)
       const lastNotified = lastNotifiedPrices[trader.traderName];
@@ -365,7 +365,7 @@ async function monitorPrices() {
           traderName: trader.traderName,
           reason: 'Already notified for this price or higher',
           details: `Last notified price: ${lastNotified}, Current price: ${trader.price}`
-        );
+        });
         continue;
       }
 
