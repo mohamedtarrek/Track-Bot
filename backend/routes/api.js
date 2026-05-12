@@ -1,25 +1,25 @@
 const express = require('express');
 const router = express.Router();
 const monitor = require('../monitor');
-const { updateSettings, getSettings } = require('../config');
+const config = require('../config');
 
-// Get current status
+// GET /api/status
 router.get('/status', (req, res) => {
   const status = monitor.getStatus();
   res.json(status);
-};
+});
 
-// Update settings
+// POST /api/update-settings
 router.post('/update-settings', (req, res) => {
   try {
-    updateSettings(req.body);
-    res.json({ success: true, message: 'Settings updated successfully' });
+    config.updateSettings(req.body);
+    res.json({ success: true, message: 'Successfully updated settings' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
-// Start monitoring
+// POST /api/start
 router.post('/start', (req, res) => {
   try {
     monitor.start();
@@ -29,7 +29,7 @@ router.post('/start', (req, res) => {
   }
 });
 
-// Stop monitoring
+// POST /api/stop
 router.post('/stop', (req, res) => {
   try {
     monitor.stop();
