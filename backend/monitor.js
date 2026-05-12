@@ -73,8 +73,8 @@ function generateDebugReport(data) {
   const timestamp = new Date().toLocaleString();
   let report = `🐛 *DEBUG REPORT* 🐛\n*Time:* ${timestamp}\n\n`;
 
-  // 1. Scraped data (first 5 orders)
-  report += `1. *Scraped data (first 5 orders):*\n`;
+  // 1. Scraped data (all traders)
+  report += `1. *Scraped data:*\n`;
   if (data.scrapedData.length > 0) {
     data.scrapedData.forEach((item, index) => {
       report += `   ${index + 1}. ${item.traderName}: ${item.price} EGP, ${item.maxQuantity} USDT, Payments: ${item.paymentMethods.join(', ')}\n`;
@@ -98,7 +98,7 @@ function generateDebugReport(data) {
   if (data.competitorAnalysis.length > 0) {
     data.competitorAnalysis.forEach((analysis, index) => {
       report += `   ${index + 1}. ${analysis.traderName}: ${analysis.reason}\n`;
-      report += `      Details: ${analysis.details}\n`;
+      report += `      Details: ${analysis.details}\n`);
     });
   } else {
     report += `   No competitor analysis available\n`;
@@ -135,6 +135,53 @@ async function sendDebugReport() {
     console.log('[DEBUG] Debug report sent via Telegram');
   } catch (error) {
     console.error('[DEBUG] Error sending debug report:', error.response ? error.response.body : error.message);
+  }
+}
+
+// Send status update via Telegram (whether merchant found or not)
+async function sendStatusUpdate(found, details) {
+  const { telegramToken, telegramChatId } = config.getSettings();
+  console.log(`[DEBUG] sendStatusUpdate called. Token exists: !!${!!telegramToken && telegramToken !== null}, Chat ID exists: !!${!!telegramChatId && telegramChatId !== null}`);
+  if (!telegramToken || telegramToken === null || telegramToken.trim() === '' ||
+      !telegramChatId || telegramChatId === null || telegramChatId.trim() === '') {
+    console.log('[DEBUG] Telegram credentials not set. Skipping status update.');
+    return false;
+  }
+  if (!bot) {
+    console.log('[DEBUG] Initializing Telegram bot for status update...');
+    initTelegramBot();
+    if (!bot) {
+      console.log('[DEBUG] Failed to initialize Telegram bot for status update.');
+      return false;
+    }
+  }
+  try {
+    let message = '';
+    if (found) {
+      message = `
+🔍 *Merchant Search Result* 🔍
+
+✅ *Merchant FOUND:* ${details.merchantName}
+💰 *Price:* ${details.price} EGP/USDT
+📊 *Scan Time:* ${new Date().toLocaleString()}
+      `.trim();
+    } else {
+      message = `
+🔍 *Merchant Search Result* 🔍
+
+❌ *Merchant NOT FOUND:* ${details.merchantName}
+📊 *Scan Time:* ${new Date().toLocaleString()}
+📈 *Total Traders Scanned:* ${details.totalTraders}
+      `.trim();
+    }
+
+    console.log(`[DEBUG] Sending status update to chat ID: ${telegramChatId}`);
+    const result = await bot.sendMessage(telegramChatId, message);
+    console.log('[DEBUG] Status update sent successfully:', result.message_id);
+    return true;
+  } catch (error) {
+    console.error('[DEBUG] Error sending status update:', error.response ? error.response.body : error.message);
+    return false;
   }
 }
 
@@ -293,12 +340,19 @@ async function monitorPrices() {
       debugInfo.ourTraderFound = false;
       // Save debug info for the report
       lastMonitoringData = { ...debugInfo };
+
+      // Send status update - merchant not found
+      await sendStatusUpdate(false, {
+        merchantName: myTraderName,
+        totalTraders: traders.length
+      });
+
       return;
     }
 
     debugInfo.ourTraderFound = true;
     debugInfo.ourTraderPrice = ourTrader.price;
-    console.log(`[DEBUG] Found our trader: ${ourTrader.traderName} with price ${ourPrice}`);
+    console.log(`[DEBUG] Found our trader: ${ourTrader.traderName} with price ${ourTrader.price}`);
 
     // Check other traders
     let eligibleCompetitors = 0;
@@ -396,6 +450,12 @@ async function monitorPrices() {
 
     // Save the debug info from this run for the debug report
     lastMonitoringData = { ...debugInfo };
+
+    // Send status update - merchant found
+    await sendStatusUpdate(true, {
+      merchantName: ourTrader.traderName,
+      price: ourTrader.price
+    });
   } catch (error) {
     console.error('[DEBUG] Error in monitorPrices:', error);
   }
