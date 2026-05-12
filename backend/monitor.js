@@ -98,7 +98,7 @@ function generateDebugReport(data) {
   if (data.competitorAnalysis.length > 0) {
     data.competitorAnalysis.forEach((analysis, index) => {
       report += `   ${index + 1}. ${analysis.traderName}: ${analysis.reason}\n`;
-      report += `      Details: ${analysis.details}\n`);
+      report += `      Details: ${analysis.details}\n`;
     });
   } else {
     report += `   No competitor analysis available\n`;
