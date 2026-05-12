@@ -25,7 +25,7 @@ let debugInfo = {
 let lastMonitoringData = null; // Stores the debugInfo from the last completed monitoring run
 
 // Gate.io P2P URL for USDT/EGP sell
-const GATEIO_P2P_URL = 'https://www.gate.com/ar/p2p/sell/USDT-EGP';
+const GATEIO_P2P_URL = 'https://www.gate.com/p2p/sell/USDT-EGP';
 
 // Initialize Telegram bot (if token is available)
 let bot = null;
