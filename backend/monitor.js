@@ -20,30 +20,36 @@ function initTelegramBot() {
   const { telegramToken } = config.getSettings();
   if (telegramToken && telegramToken.trim() !== '') {
     bot = new TelegramBot(telegramToken, { polling: false });
+    console.log('[DEBUG] Telegram bot initialized');
   } else {
     bot = null;
+    console.log('[DEBUG] Telegram token not set, bot not initialized');
   }
 }
 
 // Send Telegram notification
 async function sendTelegramNotification(message) {
   const { telegramToken, telegramChatId } = config.getSettings();
+  console.log(`[DEBUG] sendTelegramNotification called. Token exists: !!${!!telegramToken}, Chat ID exists: !!${!!telegramChatId}`);
   if (!telegramToken || !telegramChatId || telegramToken.trim() === '' || telegramChatId.trim() === '') {
-    console.log('Telegram credentials not set. Skipping notification.');
+    console.log('[DEBUG] Telegram credentials not set. Skipping notification.');
     return false;
   }
   if (!bot) {
+    console.log('[DEBUG] Initializing Telegram bot...');
     initTelegramBot();
     if (!bot) {
-      console.log('Failed to initialize Telegram bot.');
+      console.log('[DEBUG] Failed to initialize Telegram bot.');
       return false;
     }
   }
   try {
-    await bot.sendMessage(telegramChatId, message);
+    console.log(`[DEBUG] Sending Telegram message to chat ID: ${telegramChatId}`);
+    const result = await bot.sendMessage(telegramChatId, message);
+    console.log('[DEBUG] Telegram message sent successfully:', result.message_id);
     return true;
   } catch (error) {
-    console.error('Error sending Telegram message:', error.response ? error.response.body : error.message);
+    console.error('[DEBUG] Error sending Telegram message:', error.response ? error.response.body : error.message);
     return false;
   }
 }
@@ -51,12 +57,14 @@ async function sendTelegramNotification(message) {
 // Scrape Gate.io P2P page
 async function scrapeGateioP2P() {
   try {
+    console.log('[DEBUG] Scraping Gate.io P2P page:', GATEIO_P2P_URL);
     const response = await axios.get(GATEIO_P2P_URL, {
       timeout: 10000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     });
+    console.log('[DEBUG] Gate.io P2P page scraped successfully, status:', response.status);
     const $ = cheerio.load(response.data);
     const traders = [];
 
@@ -96,6 +104,13 @@ async function scrapeGateioP2P() {
       }
     });
 
+    console.log(`[DEBUG] Scraped ${traders.length} traders from Gate.io P2P page`);
+    if (traders.length === 0) {
+      console.log('[DEBUG] WARNING: No traders found. Check HTML selectors.');
+      // Log a snippet of the HTML for debugging
+      console.log('[DEBUG] HTML snippet:', $.html().substring(0, 500));
+    }
+
     // If the above selector doesn't work, try a fallback
     if (traders.length === 0) {
       // Fallback: look for any divs that might contain trader info
@@ -111,24 +126,27 @@ async function scrapeGateioP2P() {
 
     return traders;
   } catch (error) {
-    console.error('Error scraping Gate.io P2P page:', error.response ? error.response.status : error.message);
+    console.error('[DEBUG] Error scraping Gate.io P2P page:', error.response ? error.response.status : error.message);
     throw error;
   }
 }
 
 // Main monitoring function
 async function monitorPrices() {
+  console.log('[DEBUG] monitorPrices function called');
   try {
     const settings = config.getSettings();
     const { myTraderName, minQuantity } = settings;
+    console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}`);
 
     if (!myTraderName || myTraderName.trim() === '') {
-      console.log('My trader name is not set. Skipping this check.');
+      console.log('[DEBUG] My trader name is not set. Skipping this check.');
       return;
     }
 
     const traders = await scrapeGateioP2P();
     lastChecked = new Date().toISOString();
+    console.log(`[DEBUG] Last checked updated to: ${lastChecked}`);
 
     // Find our trader
     const ourTrader = traders.find(t =>
@@ -136,37 +154,57 @@ async function monitorPrices() {
     );
 
     if (!ourTrader) {
-      console.log(`Our trader "${myTraderName}" not found in the list.`);
+      console.log(`[DEBUG] Our trader "${myTraderName}" not found in the list of ${traders.length} traders.`);
+      // Log all trader names for debugging
+      const traderNames = traders.map(t => t.traderName);
+      console.log('[DEBUG] Available trader names:', traderNames);
       return;
     }
 
     const ourPrice = ourTrader.price;
+    console.log(`[DEBUG] Found our trader: ${ourTrader.traderName} with price ${ourPrice}`);
 
     // Check other traders
+    let eligibleCompetitors = 0;
     for (const trader of traders) {
       // Skip our own trader
-      if (trader.traderName.toLowerCase() === myTraderName.toLowerCase()) continue;
+      if (trader.traderName.toLowerCase() === myTraderName.toLowerCase()) {
+        console.log(`[DEBUG] Skipping own trader: ${trader.traderName}`);
+        continue;
+      }
 
       // Check payment method: must include Instapay (case-insensitive)
       const hasInstapay = trader.paymentMethods.some(method =>
         method.includes('instapay') || method.includes('إنستاباي')
       );
-      if (!hasInstapay) continue;
+      if (!hasInstapay) {
+        console.log(`[DEBUG] Skipping trader ${trader.traderName}: no Instapay payment method. Methods: ${trader.paymentMethods.join(', ')}`);
+        continue;
+      }
 
       // Check if trader's price is higher than ours
-      if (trader.price <= ourPrice) continue;
+      if (trader.price <= ourPrice) {
+        console.log(`[DEBUG] Skipping trader ${trader.traderName}: price ${trader.price} <= our price ${ourPrice}`);
+        continue;
+      }
 
       // Check if max quantity meets the minimum threshold
-      if (trader.maxQuantity < minQuantity) continue;
+      if (trader.maxQuantity < minQuantity) {
+        console.log(`[DEBUG] Skipping trader ${trader.traderName}: quantity ${trader.maxQuantity} < min quantity ${minQuantity}`);
+        continue;
+      }
 
       // Check for duplicate notification: if we already notified for this trader at this price (or higher)
       const lastNotified = lastNotifiedPrices[trader.traderName];
       if (lastNotified !== undefined && trader.price <= lastNotified) {
-        // We've already notified for this trader at a price >= current price
+        console.log(`[DEBUG] Skipping trader ${trader.traderName}: already notified for price >= ${lastNotified}, current price ${trader.price}`);
         continue;
       }
 
       // All conditions met: send notification
+      eligibleCompetitors++;
+      console.log(`[DEBUG] Found eligible competitor #${eligibleCompetitors}: ${trader.traderName}`);
+
       const priceDifference = trader.price - ourPrice;
       const priceDifferencePercent = (priceDifference / ourPrice) * 100;
       const timestamp = new Date().toLocaleString();
@@ -187,18 +225,24 @@ async function monitorPrices() {
       if (sent) {
         notificationsSent++;
         lastNotifiedPrices[trader.traderName] = trader.price;
-        console.log(`Notification sent for trader ${trader.traderName}`);
+        console.log(`[DEBUG] Notification sent for trader ${trader.traderName}. Total notifications: ${notificationsSent}`);
+      } else {
+        console.log(`[DEBUG] Failed to send notification for trader ${trader.traderName}`);
       }
     }
+
+    if (eligibleCompetitors === 0) {
+      console.log('[DEBUG] No eligible competitors found in this check.');
+    }
   } catch (error) {
-    console.error('Error in monitorPrices:', error);
+    console.error('[DEBUG] Error in monitorPrices:', error);
   }
 }
 
 // Start monitoring
 function start() {
   if (isRunning) {
-    console.log('Monitoring is already running.');
+    console.log('[DEBUG] Monitoring is already running.');
     return;
   }
 
@@ -206,7 +250,7 @@ function start() {
   const intervalSeconds = settings.pollingInterval || 5;
   const intervalMs = intervalSeconds * 1000;
 
-  console.log(`Starting monitoring with interval ${intervalSeconds} seconds...`);
+  console.log(`[DEBUG] Starting monitoring with interval ${intervalSeconds} seconds...`);
   initTelegramBot(); // Initialize bot if credentials are available
 
   // Run immediately on start
@@ -215,15 +259,16 @@ function start() {
     intervalId = setInterval(monitorPrices, intervalMs);
     isRunning = true;
     lastChecked = new Date().toISOString();
+    console.log('[DEBUG] Monitoring started successfully');
   }).catch(err => {
-    console.error('Failed to run initial monitor:', err);
+    console.error('[DEBUG] Failed to run initial monitor:', err);
   });
 }
 
 // Stop monitoring
 function stop() {
   if (!isRunning) {
-    console.log('Monitoring is not running.');
+    console.log('[DEBUG] Monitoring is not running.');
     return;
   }
 
@@ -232,7 +277,7 @@ function stop() {
     intervalId = null;
   }
   isRunning = false;
-  console.log('Monitoring stopped.');
+  console.log('[DEBUG] Monitoring stopped.');
 }
 
 // Get status
