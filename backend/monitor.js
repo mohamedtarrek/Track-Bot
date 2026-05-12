@@ -206,8 +206,8 @@ async function scrapeGateioP2P() {
       }
     });
 
-    // Store scraped data for debugging (first 5 traders)
-    debugInfo.scrapedData = traders.slice(0, 5).map(t => ({
+    // Store scraped data for debugging (all traders)
+    debugInfo.scrapedData = traders.map(t => ({
       traderName: t.traderName,
       price: t.price,
       paymentMethods: t.paymentMethods,
