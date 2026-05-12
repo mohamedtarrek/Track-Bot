@@ -18,7 +18,7 @@ const GATEIO_P2P_URL = 'https://www.gate.com/ar/p2p/sell/USDT-EGP';
 let bot = null;
 function initTelegramBot() {
   const { telegramToken } = config.getSettings();
-  if (telegramToken && telegramToken.trim() !== '') {
+  if (telegramToken && telegramToken !== null && telegramToken.trim() !== '') {
     bot = new TelegramBot(telegramToken, { polling: false });
     console.log('[DEBUG] Telegram bot initialized');
   } else {
@@ -30,8 +30,9 @@ function initTelegramBot() {
 // Send Telegram notification
 async function sendTelegramNotification(message) {
   const { telegramToken, telegramChatId } = config.getSettings();
-  console.log(`[DEBUG] sendTelegramNotification called. Token exists: !!${!!telegramToken}, Chat ID exists: !!${!!telegramChatId}`);
-  if (!telegramToken || !telegramChatId || telegramToken.trim() === '' || telegramChatId.trim() === '') {
+  console.log(`[DEBUG] sendTelegramNotification called. Token exists: !!${!!telegramToken && telegramToken !== null}, Chat ID exists: !!${!!telegramChatId && telegramChatId !== null}`);
+  if (!telegramToken || telegramToken === null || telegramToken.trim() === '' ||
+      !telegramChatId || telegramChatId === null || telegramChatId.trim() === '') {
     console.log('[DEBUG] Telegram credentials not set. Skipping notification.');
     return false;
   }
@@ -136,11 +137,28 @@ async function monitorPrices() {
   console.log('[DEBUG] monitorPrices function called');
   try {
     const settings = config.getSettings();
-    const { myTraderName, minQuantity } = settings;
-    console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}`);
+    const { myTraderName, minQuantity, telegramToken, telegramChatId, pollingInterval } = settings;
+    console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}, telegramToken set: !!${!!telegramToken}, telegramChatId set: !!${!!telegramChatId}, pollingInterval=${pollingInterval}`);
 
-    if (!myTraderName || myTraderName.trim() === '') {
+    // Validate required settings
+    if (!myTraderName || myTraderName === null || myTraderName.trim() === '') {
       console.log('[DEBUG] My trader name is not set. Skipping this check.');
+      return;
+    }
+    if (!telegramToken || telegramToken === null || telegramToken.trim() === '') {
+      console.log('[DEBUG] Telegram token is not set. Skipping this check.');
+      return;
+    }
+    if (!telegramChatId || telegramChatId === null || telegramChatId.trim() === '') {
+      console.log('[DEBUG] Telegram chat ID is not set. Skipping this check.');
+      return;
+    }
+    if (minQuantity === null) {
+      console.log('[DEBUG] Min quantity is not set. Skipping this check.');
+      return;
+    }
+    if (pollingInterval === null) {
+      console.log('[DEBUG] Polling interval is not set. Skipping this check.');
       return;
     }
 
@@ -247,7 +265,7 @@ function start() {
   }
 
   const settings = config.getSettings();
-  const intervalSeconds = settings.pollingInterval || 5;
+  const intervalSeconds = settings.pollingInterval || 5; // fallback to 5 if null (shouldn't happen due to checks)
   const intervalMs = intervalSeconds * 1000;
 
   console.log(`[DEBUG] Starting monitoring with interval ${intervalSeconds} seconds...`);

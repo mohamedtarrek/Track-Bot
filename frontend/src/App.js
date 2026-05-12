@@ -8,7 +8,7 @@ function App() {
     minQuantity: '',
     telegramToken: '',
     telegramChatId: '',
-    pollingInterval: '5'
+    pollingInterval: ''
   });
   const [status, setStatus] = useState({
     isRunning: false,
@@ -50,7 +50,13 @@ function App() {
     setLoading(true);
     setMessage('');
     try {
-      await axios.post('/api/update-settings', settings);
+      // Convert empty strings to null for numeric fields
+      const updateSettings = {
+        ...settings,
+        minQuantity: settings.minQuantity === '' ? null : parseFloat(settings.minQuantity),
+        pollingInterval: settings.pollingInterval === '' ? null : parseInt(settings.pollingInterval)
+      };
+      await axios.post('/api/update-settings', updateSettings);
       setMessage('Settings updated successfully!');
       // Fetch updated status to see if running state changed
       const statusRes = await axios.get('/api/status');

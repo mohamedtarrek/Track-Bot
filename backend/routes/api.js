@@ -12,14 +12,7 @@ router.get('/status', (req, res) => {
 // Update settings
 router.post('/update-settings', (req, res) => {
   try {
-    const { myTraderName, minQuantity, telegramToken, telegramChatId, pollingInterval } = req.body;
-    updateSettings({
-      myTraderName,
-      minQuantity: parseFloat(minQuantity) || 0,
-      telegramToken,
-      telegramChatId,
-      pollingInterval: parseInt(pollingInterval) || 5
-    });
+    updateSettings(req.body);
     res.json({ success: true, message: 'Settings updated successfully' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
