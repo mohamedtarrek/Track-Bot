@@ -18,7 +18,6 @@ let debugInfo = {
   scrapedData: [], // Array of {traderName, price, paymentMethods, maxQuantity}
   ourTraderFound: false,
   ourTraderPrice: null,
-  instapayCount: 0,
   higherPriceCount: 0,
   sufficientQuantityCount: 0,
   competitorAnalysis: [] // Array of analysis for each competitor
@@ -88,17 +87,14 @@ function generateDebugReport(data) {
   // 2. Whether my trader was found and what their price is
   report += `2. *Trader "${data.ourTraderName || 'N/A'}":* ${data.ourTraderFound ? `FOUND - Price: ${data.ourTraderPrice} EGP` : 'NOT FOUND in scraped data'}\n\n`;
 
-  // 3. Count of competitors with Instapay
-  report += `3. *Competitors with Instapay:* ${data.instapayCount}\n\n`;
+  // 3. Count of competitors with higher price
+  report += `3. *Competitors with higher price:* ${data.higherPriceCount}\n\n`;
 
-  // 4. Count of competitors with higher price
-  report += `4. *Competitors with higher price:* ${data.higherPriceCount}\n\n`;
+  // 4. Count of competitors with sufficient quantity
+  report += `4. *Competitors with sufficient quantity:* ${data.sufficientQuantityCount}\n\n`;
 
-  // 5. Count of competitors with sufficient quantity
-  report += `5. *Competitors with sufficient quantity:* ${data.sufficientQuantityCount}\n\n`;
-
-  // 6. Detailed competitor analysis
-  report += `6. *Competitor analysis:*\n`;
+  // 5. Detailed competitor analysis
+  report += `5. *Competitor analysis:*\n`;
   if (data.competitorAnalysis.length > 0) {
     data.competitorAnalysis.forEach((analysis, index) => {
       report += `   ${index + 1}. ${analysis.traderName}: ${analysis.reason}\n`;
@@ -154,7 +150,6 @@ function resetDebugInfo() {
     scrapedData: [],
     ourTraderFound: false,
     ourTraderPrice: null,
-    instapayCount: 0,
     higherPriceCount: 0,
     sufficientQuantityCount: 0,
     competitorAnalysis: []
@@ -186,6 +181,7 @@ async function scrapeGateioP2P() {
       const priceText = $element.find('.price, .num, [data-test="price"]').text().trim();
       const price = parseFloat(priceText.replace(/[^\d.]/g, ''));
       // Extract payment methods
+      const paymentMethods = [];
       $element.find('.payment-method, .pay-method, img[alt]').each((_, payElem) => {
         const alt = $(payElem).attr('alt');
         if (alt) paymentMethods.push(alt.toLowerCase());
@@ -317,21 +313,6 @@ async function monitorPrices() {
         });
         continue;
       }
-
-      // Check payment method: must include Instapay (case-insensitive)
-      const hasInstapay = trader.paymentMethods.some(method =>
-        method.includes('instapay') || method.includes('إنستاباي')
-      );
-      if (!hasInstapay) {
-        console.log(`[DEBUG] Skipping trader ${trader.traderName}: no Instapay payment method. Methods: ${trader.paymentMethods.join(', ')}`);
-        debugInfo.competitorAnalysis.push({
-          traderName: trader.traderName,
-          reason: 'No Instapay payment method',
-          details: `Methods: ${trader.paymentMethods.join(', ')}`
-        });
-        continue;
-      }
-      debugInfo.instapayCount++;
 
       // Check if trader's price is higher than ours
       if (trader.price <= ourTrader.price) {
