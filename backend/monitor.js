@@ -6,6 +6,7 @@ const config = require('./config');
 // Monitoring state
 let isRunning = false;
 let intervalId = null;
+let let debugIntervalId = null;
 let lastChecked = null;
 let notificationsSent = 0;
 // To prevent duplicate notifications: track last notified price for each trader
@@ -13,6 +14,7 @@ const lastNotifiedPrices = {}; // key: traderName, value: last price we notified
 
 // Debug information from last monitoring run
 let debugInfo = {
+  ourTraderName: null,
   scrapedData: [], // Array of {traderName, price, paymentMethods, maxQuantity}
   ourTraderFound: false,
   ourTraderPrice: null,
@@ -21,6 +23,7 @@ let debugInfo = {
   sufficientQuantityCount: 0,
   competitorAnalysis: [] // Array of analysis for each competitor
 };
+let lastMonitoringData = null; // Stores the debugInfo from the last completed monitoring run
 
 // Gate.io P2P URL for USDT/EGP sell
 const GATEIO_P2P_URL = 'https://www.gate.com/ar/p2p/sell/USDT-EGP';
@@ -38,7 +41,7 @@ function initTelegramBot() {
   }
 }
 
-// Send Telegram notification
+// Send Telegram notification (for alerts)
 async function sendTelegramNotification(message) {
   const { telegramToken, telegramChatId } = config.getSettings();
   console.log(`[DEBUG] sendTelegramNotification called. Token exists: !!${!!telegramToken && telegramToken !== null}, Chat ID exists: !!${!!telegramChatId && telegramChatId !== null}`);
@@ -66,7 +69,80 @@ async function sendTelegramNotification(message) {
   }
 }
 
-// Get debug information
+// Generate debug report string from monitoring data
+function generateDebugReport(data) {
+  const timestamp = new Date().toLocaleString();
+  let report = `🐛 *DEBUG REPORT* 🐛\n*Time:* ${timestamp}\n\n`;
+
+  // 1. Scraped data (first 5 orders)
+  report += `1. *Scraped data (first 5 orders):*\n`;
+  if (data.scrapedData.length > 0) {
+    data.scrapedData.forEach((item, index) => {
+      report += `   ${index + 1}. ${item.traderName}: ${item.price} EGP, ${item.maxQuantity} USDT, Payments: ${item.paymentMethods.join(', ')}\n`;
+    });
+  } else {
+    report += `   No scraped data available\n`;
+  }
+  report += '\n';
+
+  // 2. Whether my trader was found and what their price is
+  report += `2. *Trader "${data.ourTraderName || 'N/A'}":* ${data.ourTraderFound ? `FOUND - Price: ${data.ourTraderPrice} EGP` : 'NOT FOUND in scraped data'}\n\n`;
+
+  // 3. Count of competitors with Instapay
+  report += `3. *Competitors with Instapay:* ${data.instapayCount}\n\n`;
+
+  // 4. Count of competitors with higher price
+  report += `4. *Competitors with higher price:* ${data.higherPriceCount}\n\n`;
+
+  // 5. Count of competitors with sufficient quantity
+  report += `5. *Competitors with sufficient quantity:* ${data.sufficientQuantityCount}\n\n`;
+
+  // 6. Detailed competitor analysis
+  report += `6. *Competitor analysis:*\n`;
+  if (data.competitorAnalysis.length > 0) {
+    data.competitorAnalysis.forEach((analysis, index) => {
+      report += `   ${index + 1}. ${analysis.traderName}: ${analysis.reason}\n`;
+      report += `      Details: ${analysis.details}\n`;
+    });
+  } else {
+    report += `   No competitor analysis available\n`;
+  }
+
+  return report;
+}
+
+// Send debug report via Telegram
+async function sendDebugReport() {
+  if (!lastMonitoringData) {
+    console.log('[DEBUG] No monitoring data available for debug report.');
+    return;
+  }
+
+  const { telegramToken, telegramChatId } = config.getSettings();
+  if (!telegramToken || telegramToken === null || telegramToken.trim() === '' ||
+      !telegramChatId || telegramChatId === null || telegramChatId.trim() === '') {
+    console.log('[DEBUG] Telegram credentials not set. Skipping debug report.');
+    return;
+  }
+  if (!bot) {
+    console.log('[DEBUG] Initializing Telegram bot for debug report...');
+    initTelegramBot();
+    if (!bot) {
+      console.log('[DEBUG] Failed to initialize Telegram bot for debug report.');
+      return;
+    }
+  }
+
+  const report = generateDebugReport(lastMonitoringData);
+  try {
+    await bot.sendMessage(telegramChatId, report);
+    console.log('[DEBUG] Debug report sent via Telegram');
+  } catch (error) {
+    console.error('[DEBUG] Error sending debug report:', error.response ? error.response.body : error.message);
+  }
+}
+
+// Get debug information (for potential future use)
 function getDebugInfo() {
   return { ...debugInfo }; // Return a copy
 }
@@ -74,6 +150,7 @@ function getDebugInfo() {
 // Reset debug information for new monitoring run
 function resetDebugInfo() {
   debugInfo = {
+    ourTraderName: null,
     scrapedData: [],
     ourTraderFound: false,
     ourTraderPrice: null,
@@ -109,7 +186,6 @@ async function scrapeGateioP2P() {
       const priceText = $element.find('.price, .num, [data-test="price"]').text().trim();
       const price = parseFloat(priceText.replace(/[^\d.]/g, ''));
       // Extract payment methods
-      const paymentMethods = [];
       $element.find('.payment-method, .pay-method, img[alt]').each((_, payElem) => {
         const alt = $(payElem).attr('alt');
         if (alt) paymentMethods.push(alt.toLowerCase());
@@ -175,8 +251,10 @@ async function monitorPrices() {
   try {
     // Reset debug info for this run
     resetDebugInfo();
-
+    // Store the trader name we are looking for (from settings)
     const settings = config.getSettings();
+    debugInfo.ourTraderName = settings.myTraderName;
+
     const { myTraderName, minQuantity, telegramToken, telegramChatId, pollingInterval } = settings;
     console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}, telegramToken set: !!${!!telegramToken && telegramToken !== null}, telegramChatId set: !!${!!telegramChatId && telegramChatId !== null}, pollingInterval=${pollingInterval}`);
 
@@ -217,6 +295,8 @@ async function monitorPrices() {
       const traderNames = traders.map(t => t.traderName);
       console.log('[DEBUG] Available trader names:', traderNames);
       debugInfo.ourTraderFound = false;
+      // Save debug info for the report
+      lastMonitoringData = { ...debugInfo };
       return;
     }
 
@@ -230,6 +310,11 @@ async function monitorPrices() {
       // Skip our own trader
       if (trader.traderName.toLowerCase() === myTraderName.toLowerCase()) {
         console.log(`[DEBUG] Skipping own trader: ${trader.traderName}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'Own trader',
+          details: 'Skipped self'
+        });
         continue;
       }
 
@@ -246,7 +331,7 @@ async function monitorPrices() {
         });
         continue;
       }
-      debugInfo.instapayCount++;
+      instapayCount++;
 
       // Check if trader's price is higher than ours
       if (trader.price <= ourTrader.price) {
@@ -258,7 +343,7 @@ async function monitorPrices() {
         });
         continue;
       }
-      debugInfo.higherPriceCount++;
+      higherPriceCount++;
 
       // Check if max quantity meets the minimum threshold
       if (trader.maxQuantity < minQuantity) {
@@ -267,10 +352,10 @@ async function monitorPrices() {
           traderName: trader.traderName,
           reason: 'Insufficient quantity',
           details: `Their quantity: ${trader.maxQuantity}, Minimum: ${minQuantity}`
-        });
+        );
         continue;
       }
-      debugInfo.sufficientQuantityCount++;
+      sufficientQuantityCount++;
 
       // Check for duplicate notification: if we already notified for this trader at this price (or higher)
       const lastNotified = lastNotifiedPrices[trader.traderName];
@@ -280,7 +365,7 @@ async function monitorPrices() {
           traderName: trader.traderName,
           reason: 'Already notified for this price or higher',
           details: `Last notified price: ${lastNotified}, Current price: ${trader.price}`
-        });
+        );
         continue;
       }
 
@@ -327,6 +412,9 @@ async function monitorPrices() {
     if (eligibleCompetitors === 0) {
       console.log('[DEBUG] No eligible competitors found in this check.');
     }
+
+    // Save the debug info from this run for the debug report
+    lastMonitoringData = { ...debugInfo };
   } catch (error) {
     console.error('[DEBUG] Error in monitorPrices:', error);
   }
@@ -348,8 +436,10 @@ function start() {
 
   // Run immediately on start
   monitorPrices().then(() => {
-    // Set up interval
+    // Set up monitoring interval
     intervalId = setInterval(monitorPrices, intervalMs);
+    // Set up debug report interval (every 30 seconds)
+    debugIntervalId = setInterval(sendDebugReport, 30 * 1000);
     isRunning = true;
     lastChecked = new Date().toISOString();
     console.log('[DEBUG] Monitoring started successfully');
@@ -368,6 +458,10 @@ function stop() {
   if (intervalId) {
     clearInterval(intervalId);
     intervalId = null;
+  }
+  if (debugIntervalId) {
+    clearInterval(debugIntervalId);
+    debugIntervalId = null;
   }
   isRunning = false;
   console.log('[DEBUG] Monitoring stopped.');

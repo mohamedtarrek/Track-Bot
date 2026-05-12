@@ -18,78 +18,151 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Fetch settings and status on load and periodically
+  // Fetch status periodically
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 5000); // Update status every 5 seconds
+    const fetchStatus = async () => {
+      try {
+        const res = await axios.get('/api/status');
+        setStatus(res.data);
+      } catch (err) {
+        console.error('Failed to fetch status:', err);
+      }
+    };
+
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // Every 5 seconds
     return () => clearInterval(interval);
   }, []);
 
-  async function fetchData() {
+  function handleChange(e) {
+    const { name, value } = e.target;
+    setSettings(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  }
+
+  async function handleUpdate() {
+    setLoading(true);
+    setMessage('');
     try {
-      const [statusRes] = await Promise.all([
-        axios.get('/api/status')
-        // We don't need settings for now since we're not implementing the update endpoint
-      ]);
-
-      // Update status
-      setStatus(statusRes.data);
-
-      // Log debug information to console
-      if (statusRes.data.debugInfo) {
-        console.log('=== GATE.IO MONITOR DEBUG INFO ===');
-        console.log('Timestamp:', new Date().toLocaleString());
-
-        // 1. What data is being scraped from Gate.io (first 5 orders)
-        if (statusRes.data.debugInfo.scrapedData.length > 0) {
-          console.log('1. Scraped data (first 5 orders):');
-          statusRes.data.debugInfo.scrapedData.forEach((item, index) => {
-            console.log(`   ${index + 1}. ${item.traderName}: ${item.price} EGP, ${item.maxQuantity} USDT, Payments: ${item.paymentMethods.join(', ')}`);
-          });
-        } else {
-          console.log('1. No scraped data available');
-        }
-
-        // 2. Whether my trader was found and what their price is
-        console.log(`2. Trader "${statusRes.data.debugInfo.ourTraderFound ? 'FOUND' : 'NOT FOUND'}": ${statusRes.data.debugInfo.ourTraderFound ? `Price: ${statusRes.data.debugInfo.ourTraderPrice} EGP` : 'Not found in scraped data'}`);
-
-        // 3. How many competitors use Instapay payment method
-        console.log(`3. Competitors with Instapay: ${statusRes.data.debugInfo.instapayCount}`);
-
-        // 4. How many competitors have price higher than my trader
-        console.log(`4. Competitors with higher price: ${statusRes.data.debugInfo.higherPriceCount}`);
-
-        // 5. How many competitors meet the minimum quantity requirement
-        console.log(`5. Competitors with sufficient quantity: ${statusRes.data.debugInfo.sufficientQuantityCount}`);
-
-        // 6. Why each competitor is or isn't eligible for notification
-        if (statusRes.data.debugInfo.competitorAnalysis.length > 0) {
-          console.log('6. Competitor analysis:');
-          statusRes.data.debugInfo.competitorAnalysis.forEach((analysis, index) => {
-            console.log(`   ${index + 1}. ${analysis.traderName}: ${analysis.reason}`);
-            console.log(`      Details: ${analysis.details}`);
-          });
-        } else {
-          console.log('6. No competitor analysis available');
-        }
-
-        console.log('====================================\n');
-      }
+      // Convert empty strings to null for numeric fields
+      const updateSettings = {
+        ...settings,
+        minQuantity: settings.minQuantity === '' ? null : parseFloat(settings.minQuantity),
+        pollingInterval: settings.pollingInterval === '' ? null : parseInt(settings.pollingInterval)
+      };
+      await axios.post('/api/update-settings', updateSettings);
+      setMessage('Settings updated successfully!');
+      // Fetch updated status
+      const res = await axios.get('/api/status');
+      setStatus(res.data);
     } catch (err) {
-      console.error('Failed to fetch data:', err);
+      setMessage('Failed to update settings: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
     }
   }
 
-  // Note: We're not implementing the setting update/start/stop functions as per the user's request
-  // to focus on the debugging feature. In a real implementation, these would be needed.
+  async function handleStart() {
+    setLoading(true);
+    setMessage('');
+    try {
+      await axios.post('/api/start');
+      const res = await axios.get('/api/status');
+      setStatus(res.data);
+      setMessage('Monitoring started!');
+    } catch (err) {
+      setMessage('Failed to start monitoring: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStop() {
+    setLoading(true);
+    setMessage('');
+    try {
+      await axios.post('/api/stop');
+      const res = await axios.get('/api/status');
+      setStatus(res.data);
+      setMessage('Monitoring stopped!');
+    } catch (err) {
+      setMessage('Failed to stop monitoring: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="App">
       <header className="App-header">
         <h1>Track Bot - Gate.io P2P Monitor</h1>
-        <p>Check browser console (F12) for debug information</p>
       </header>
       <main className="App-main">
+        <div className="card">
+          <h2>Settings</h2>
+          <div className="form-group">
+            <label>My Trader Name on Gate.io:</label>
+            <input
+              type="text"
+              name="myTraderName"
+              value={settings.myTraderName}
+              onChange={handleChange}
+              placeholder="Enter your trader name"
+              className="input"
+            />
+          </div>
+          <div className="form-group">
+            <label>Minimum Quantity to Monitor (USDT):</label>
+            <input
+              type="number"
+              name="minQuantity"
+              value={settings.minQuantity}
+              onChange={handleChange}
+              min="0"
+              step="0.01"
+              className="input"
+            />
+          </div>
+          <div className="form-group">
+            <label>Telegram API Token:</label>
+            <input
+              type="password"
+              name="telegramToken"
+              value={settings.telegramToken}
+              onChange={handleChange}
+              placeholder="Get from @BotFather"
+              className="input"
+            />
+          </div>
+          <div className="form-group">
+            <label>Telegram Chat ID:</label>
+            <input
+              type="text"
+              name="telegramChatId"
+              value={settings.telegramChatId}
+              onChange={handleChange}
+              placeholder="Get from @userinfobot"
+              className="input"
+            />
+          </div>
+          <div className="form-group">
+            <label>Polling Interval (seconds):</label>
+            <input
+              type="number"
+              name="pollingInterval"
+              value={settings.pollingInterval}
+              onChange={handleChange}
+              min="1"
+              className="input"
+            />
+          </div>
+          <button onClick={handleUpdate} disabled={loading} className="button primary">
+            {loading ? 'Updating...' : 'Save / Update'}
+          </button>
+        </div>
+
         <div className="card">
           <h2>System Status</h2>
           <div className="status-item">
@@ -108,23 +181,20 @@ function App() {
           </div>
         </div>
 
-        <div className="card">
-          <h2>Instructions</h2>
-          <p>To see debug information:</p>
-          <ol>
-            <li>Enter your settings in a real implementation (this demo focuses on debugging)</li>
-            <li>Click "Start" to begin monitoring</li>
-            <li>Open browser developer tools (F12) and go to the Console tab</li>
-            <li>Debug information will appear every 5 seconds</li>
-          </ol>
-          <p>Each debug block shows:</p>
-          <ul>
-            <li>Scraped data (first 5 orders)</li>
-            <li>Whether your trader was found and their price</li>
-            <li>Counts of competitors meeting various criteria</li>
-            <li>Detailed analysis of why each competitor is or isn't eligible</li>
-          </ul>
+        <div className="card actions">
+          <button onClick={handleStart} disabled={loading || status.isRunning} className="button success">
+            {loading ? 'Starting...' : 'Start Telegram Notifications'}
+          </button>
+          <button onClick={handleStop} disabled={loading || !status.isRunning} className="button danger">
+            {loading ? 'Stopping...' : 'Stop Telegram Notifications'}
+          </button>
         </div>
+
+        {message && (
+          <div className={`alert ${message.includes('success') ? 'alert-success' : 'alert-error'}`}>
+            {message}
+          </div>
+        )}
       </main>
     </div>
   );

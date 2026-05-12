@@ -1,20 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const monitor = require('../monitor');
+const { updateSettings, getSettings } = require('../config');
 
-// Get current status with debug info
+// Get current status
 router.get('/status', (req, res) => {
   const status = monitor.getStatus();
-  const debugInfo = monitor.getDebugInfo();
-  res.json({ ...status, debugInfo });
-});
+  res.json(status);
+};
 
 // Update settings
 router.post('/update-settings', (req, res) => {
   try {
-    // This would normally update settings, but we're not implementing that part
-    // since the user wants to remove .env dependencies
-    // For now, we'll just return success
+    updateSettings(req.body);
     res.json({ success: true, message: 'Settings updated successfully' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
