@@ -11,6 +11,17 @@ let notificationsSent = 0;
 // To prevent duplicate notifications: track last notified price for each trader
 const lastNotifiedPrices = {}; // key: traderName, value: last price we notified for this trader
 
+// Debug information from last monitoring run
+let debugInfo = {
+  scrapedData: [], // Array of {traderName, price, paymentMethods, maxQuantity}
+  ourTraderFound: false,
+  ourTraderPrice: null,
+  instapayCount: 0,
+  higherPriceCount: 0,
+  sufficientQuantityCount: 0,
+  competitorAnalysis: [] // Array of analysis for each competitor
+};
+
 // Gate.io P2P URL for USDT/EGP sell
 const GATEIO_P2P_URL = 'https://www.gate.com/ar/p2p/sell/USDT-EGP';
 
@@ -53,6 +64,24 @@ async function sendTelegramNotification(message) {
     console.error('[DEBUG] Error sending Telegram message:', error.response ? error.response.body : error.message);
     return false;
   }
+}
+
+// Get debug information
+function getDebugInfo() {
+  return { ...debugInfo }; // Return a copy
+}
+
+// Reset debug information for new monitoring run
+function resetDebugInfo() {
+  debugInfo = {
+    scrapedData: [],
+    ourTraderFound: false,
+    ourTraderPrice: null,
+    instapayCount: 0,
+    higherPriceCount: 0,
+    sufficientQuantityCount: 0,
+    competitorAnalysis: []
+  };
 }
 
 // Scrape Gate.io P2P page
@@ -105,6 +134,14 @@ async function scrapeGateioP2P() {
       }
     });
 
+    // Store scraped data for debugging (first 5 traders)
+    debugInfo.scrapedData = traders.slice(0, 5).map(t => ({
+      traderName: t.traderName,
+      price: t.price,
+      paymentMethods: t.paymentMethods,
+      maxQuantity: t.maxQuantity
+    }));
+
     console.log(`[DEBUG] Scraped ${traders.length} traders from Gate.io P2P page`);
     if (traders.length === 0) {
       console.log('[DEBUG] WARNING: No traders found. Check HTML selectors.');
@@ -136,9 +173,12 @@ async function scrapeGateioP2P() {
 async function monitorPrices() {
   console.log('[DEBUG] monitorPrices function called');
   try {
+    // Reset debug info for this run
+    resetDebugInfo();
+
     const settings = config.getSettings();
     const { myTraderName, minQuantity, telegramToken, telegramChatId, pollingInterval } = settings;
-    console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}, telegramToken set: !!${!!telegramToken}, telegramChatId set: !!${!!telegramChatId}, pollingInterval=${pollingInterval}`);
+    console.log(`[DEBUG] Settings: myTraderName="${myTraderName}", minQuantity=${minQuantity}, telegramToken set: !!${!!telegramToken && telegramToken !== null}, telegramChatId set: !!${!!telegramChatId && telegramChatId !== null}, pollingInterval=${pollingInterval}`);
 
     // Validate required settings
     if (!myTraderName || myTraderName === null || myTraderName.trim() === '') {
@@ -176,10 +216,12 @@ async function monitorPrices() {
       // Log all trader names for debugging
       const traderNames = traders.map(t => t.traderName);
       console.log('[DEBUG] Available trader names:', traderNames);
+      debugInfo.ourTraderFound = false;
       return;
     }
 
-    const ourPrice = ourTrader.price;
+    debugInfo.ourTraderFound = true;
+    debugInfo.ourTraderPrice = ourTrader.price;
     console.log(`[DEBUG] Found our trader: ${ourTrader.traderName} with price ${ourPrice}`);
 
     // Check other traders
@@ -197,25 +239,48 @@ async function monitorPrices() {
       );
       if (!hasInstapay) {
         console.log(`[DEBUG] Skipping trader ${trader.traderName}: no Instapay payment method. Methods: ${trader.paymentMethods.join(', ')}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'No Instapay payment method',
+          details: `Methods: ${trader.paymentMethods.join(', ')}`
+        });
         continue;
       }
+      debugInfo.instapayCount++;
 
       // Check if trader's price is higher than ours
-      if (trader.price <= ourPrice) {
-        console.log(`[DEBUG] Skipping trader ${trader.traderName}: price ${trader.price} <= our price ${ourPrice}`);
+      if (trader.price <= ourTrader.price) {
+        console.log(`[DEBUG] Skipping trader ${trader.traderName}: price ${trader.price} <= our price ${ourTrader.price}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'Price not higher than ours',
+          details: `Their price: ${trader.price}, Our price: ${ourTrader.price}`
+        });
         continue;
       }
+      debugInfo.higherPriceCount++;
 
       // Check if max quantity meets the minimum threshold
       if (trader.maxQuantity < minQuantity) {
         console.log(`[DEBUG] Skipping trader ${trader.traderName}: quantity ${trader.maxQuantity} < min quantity ${minQuantity}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'Insufficient quantity',
+          details: `Their quantity: ${trader.maxQuantity}, Minimum: ${minQuantity}`
+        });
         continue;
       }
+      debugInfo.sufficientQuantityCount++;
 
       // Check for duplicate notification: if we already notified for this trader at this price (or higher)
       const lastNotified = lastNotifiedPrices[trader.traderName];
       if (lastNotified !== undefined && trader.price <= lastNotified) {
         console.log(`[DEBUG] Skipping trader ${trader.traderName}: already notified for price >= ${lastNotified}, current price ${trader.price}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'Already notified for this price or higher',
+          details: `Last notified price: ${lastNotified}, Current price: ${trader.price}`
+        });
         continue;
       }
 
@@ -223,8 +288,8 @@ async function monitorPrices() {
       eligibleCompetitors++;
       console.log(`[DEBUG] Found eligible competitor #${eligibleCompetitors}: ${trader.traderName}`);
 
-      const priceDifference = trader.price - ourPrice;
-      const priceDifferencePercent = (priceDifference / ourPrice) * 100;
+      const priceDifference = trader.price - ourTrader.price;
+      const priceDifferencePercent = (priceDifference / ourTrader.price) * 100;
       const timestamp = new Date().toLocaleString();
 
       const message = `
@@ -232,7 +297,7 @@ async function monitorPrices() {
 
 *Competitor Trader:* ${trader.traderName}
 *Competitor Price:* ${trader.price} EGP/USDT
-*Our Price:* ${ourPrice} EGP/USDT
+*Our Price:* ${ourTrader.price} EGP/USDT
 *Price Difference:* +${priceDifference.toFixed(4)} EGP (${priceDifferencePercent.toFixed(2)}%)
 *Max Quantity:* ${trader.maxQuantity} USDT
 *Ad Link:* ${trader.adLink}
@@ -244,8 +309,18 @@ async function monitorPrices() {
         notificationsSent++;
         lastNotifiedPrices[trader.traderName] = trader.price;
         console.log(`[DEBUG] Notification sent for trader ${trader.traderName}. Total notifications: ${notificationsSent}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'ELIGIBLE - Notification sent',
+          details: `Price difference: +${priceDifference.toFixed(4)} EGP (${priceDifferencePercent.toFixed(2)}%)`
+        });
       } else {
         console.log(`[DEBUG] Failed to send notification for trader ${trader.traderName}`);
+        debugInfo.competitorAnalysis.push({
+          traderName: trader.traderName,
+          reason: 'Failed to send notification',
+          details: 'Telegram send failed'
+        });
       }
     }
 
@@ -310,5 +385,6 @@ function getStatus() {
 module.exports = {
   start,
   stop,
-  getStatus
+  getStatus,
+  getDebugInfo
 };

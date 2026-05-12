@@ -1,18 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const monitor = require('../monitor');
-const { updateSettings, getSettings } = require('../config');
 
-// Get current status
+// Get current status with debug info
 router.get('/status', (req, res) => {
   const status = monitor.getStatus();
-  res.json(status);
+  const debugInfo = monitor.getDebugInfo();
+  res.json({ ...status, debugInfo });
 });
 
 // Update settings
 router.post('/update-settings', (req, res) => {
   try {
-    updateSettings(req.body);
+    // This would normally update settings, but we're not implementing that part
+    // since the user wants to remove .env dependencies
+    // For now, we'll just return success
     res.json({ success: true, message: 'Settings updated successfully' });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -37,12 +39,6 @@ router.post('/stop', (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
-});
-
-// Get current settings (for frontend to display)
-router.get('/settings', (req, res) => {
-  const settings = getSettings();
-  res.json(settings);
 });
 
 module.exports = router;

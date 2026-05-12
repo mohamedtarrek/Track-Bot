@@ -1,6 +1,6 @@
-# Track Bot - Gate.io P2P Price Monitor
+# Track Bot - Gate.io P2P Price Monitor (Debug Version)
 
-A web application that monitors P2P traders on Gate.io for USDT/EGP sell orders and sends Telegram notifications when competitors offer better prices than your own trader profile.
+A web application that monitors P2P traders on Gate.io for USDT/EGP sell orders and sends Telegram notifications when competitors offer better prices than your own trader profile. This version includes detailed debugging information in the browser console.
 
 ## Features
 
@@ -8,10 +8,22 @@ A web application that monitors P2P traders on Gate.io for USDT/EGP sell orders 
 - Compare competitor prices with your own trader price
 - Send real-time Telegram notifications when profitable opportunities are found
 - Prevent duplicate notifications for the same price level
+- **Debugging**: View detailed monitoring information in browser console (F12)
 - Configurable polling interval
 - Simple React frontend to configure settings
 - Backend Node.js server with continuous monitoring
-- Ready to deploy to Railway or any Node.js hosting
+
+## Debugging Features
+
+When monitoring is active, detailed information is logged to the browser console every 5 seconds:
+
+1. **Scraped Data**: First 5 orders showing trader name, price, payment methods, and max quantity
+2. **Trader Status**: Whether your trader was found and their price
+3. **Counters**: 
+   - Number of competitors using Instapay
+   - Number of competitors with higher prices
+   - Number of competitors meeting minimum quantity requirements
+4. **Detailed Analysis**: For each competitor, see exactly why they are or aren't eligible for notification
 
 ## Prerequisites
 
@@ -34,22 +46,7 @@ A web application that monitors P2P traders on Gate.io for USDT/EGP sell orders 
    npm install
    ```
 
-3. Create a `.env` file based on `.env.example`:
-   ```bash
-   cp .env.example .env
-   ```
-
-4. Edit `.env` to add your initial settings (optional, can be configured via frontend):
-   ```
-   PORT=5000
-   MY_TRADER_NAME=your_trader_name
-   MIN_QUANTITY=0.1
-   TELEGRAM_TOKEN=your_telegram_bot_token
-   TELEGRAM_CHAT_ID=your_telegram_chat_id
-   POLLING_INTERVAL=5
-   ```
-
-5. Start the backend server:
+3. Start the backend server:
    ```bash
    npm start
    ```
@@ -73,42 +70,23 @@ A web application that monitors P2P traders on Gate.io for USDT/EGP sell orders 
    ```
    The frontend will run on `http://localhost:3000` and proxy API requests to `http://localhost:5000`
 
-### Environment Variables
+### How to Use Debugging
 
-Create a `.env` file in the backend directory with the following variables:
+1. Start both frontend and backend servers
+2. In the web interface, you would normally enter your settings and click "Start"
+3. Open browser developer tools (F12) and go to the Console tab
+4. Every 5 seconds, you'll see a detailed debug block showing:
+   - Timestamp
+   - Scraped data (first 5 orders)
+   - Whether your trader was found and their price
+   - Counters for various criteria
+   - Detailed analysis of each competitor
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `PORT` | Port for the backend server | No (defaults to 5000) |
-| `MY_TRADER_NAME` | Your trader name on Gate.io | Yes (for monitoring) |
-| `MIN_QUANTITY` | Minimum quantity (USDT) to monitor for competitors | No (defaults to 0) |
-| `TELEGRAM_TOKEN` | Telegram Bot API token | Yes (for notifications) |
-| `TELEGRAM_CHAT_ID` | Your Telegram Chat ID | Yes (for notifications) |
-| `POLLING_INTERVAL` | How often to check prices (in seconds) | No (defaults to 5) |
+## API Endpoints
 
-## Deployment to Railway
-
-1. Push this repository to GitHub
-
-2. In Railway:
-   - Create a new project
-   - Connect your GitHub repository
-   - Railway will automatically detect the Node.js project
-   - Set the build command: `cd frontend && npm install && npm run build && cd ..`
-   - Set the start command: `node backend/server.js`
-   - Add the following environment variables in the Railway dashboard:
-     - `MY_TRADER_NAME`
-     - `MIN_QUANTITY`
-     - `TELEGRAM_TOKEN`
-     - `TELEGRAM_CHAT_ID`
-     - `POLLING_INTERVAL` (optional)
-     - `NODE_ENV` set to `production`
-
-3. Railway will:
-   - Install backend dependencies
-   - Install frontend dependencies and build the React app
-   - Serve the built frontend from the backend server
-   - Start the Node.js server
+- `GET /api/status` - Returns status information plus debug data
+- `POST /api/start` - Starts monitoring
+- `POST /api/stop` - Stops monitoring
 
 ## How It Works
 
@@ -117,20 +95,12 @@ Create a `.env` file in the backend directory with the following variables:
 3. It compares each trader's price with your configured trader price
 4. If a competitor offers a higher price and has sufficient quantity (≥ your minimum), a Telegram notification is sent
 5. Duplicate notifications are prevented by tracking the last notified price for each trader
-
-## Telegram Message Format
-
-Notifications include:
-- Competitor trader name
-- Competitor price
-- Your price
-- Price difference (absolute and percentage)
-- Maximum quantity available from competitor
-- Direct link to the competitor's ad
-- Timestamp
+6. During each monitoring cycle, detailed debug information is collected and made available via the `/api/status` endpoint
+7. The frontend fetches this data every 5 seconds and logs it to the browser console
 
 ## Notes
 
+- This version focuses on debugging capabilities. In a production version, you would implement the settings endpoints to allow configuration via the UI.
 - The scraping relies on the current structure of Gate.io's P2P page. If the page changes significantly, the scraper may need updating.
 - Be respectful of Gate.io's terms of service and avoid excessive polling.
 - For production use, consider adjusting the polling interval to avoid overloading the service.
